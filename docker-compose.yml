@@ -73,7 +73,7 @@ services:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
     ports:
-      - ${ES_PORT_HOST}:9200
+      - ${ES_PORT}:9200
     environment:
       - node.name=es01
       - cluster.name=${CLUSTER_NAME}
@@ -143,7 +143,7 @@ services:
       #   source: ./kibana.yml
       #   target: /usr/share/kibana/config/kibana.yml
     ports:
-      - ${KIBANA_PORT_HOST}:5601
+      - ${KIBANA_PORT}:5601
     environment:
       SERVERNAME: kibana
       ELASTICSEARCH_HOSTS: ${ES_DOCKER_HOSTS:-}
