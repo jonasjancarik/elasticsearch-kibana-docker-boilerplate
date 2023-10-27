@@ -2,21 +2,21 @@
 
 # Make sure Kibana can read this file, e.g. by making it readable to everyone with chmod o+r kibana.yml
 
-# This enables anonymous access to the Kibana dashboards.
+# Uncomment to enable anonymous access to the Kibana dashboards.
 # Ideally, this should be supplied using environment variables in docker-compose.yml,
-# but until we figure out how to pass an object like that, this YAML file will have to do.
-xpack.security.authc.providers:
-  anonymous.anonymous1:
-    order: 0
-    credentials:
-      username: ${ES_USERNAME}
-      password: ${ES_PASSWORD}
+# but until we figure out how to pass an object like this, this YAML file will have to do.
+
+# xpack.security.authc.providers:
+#   anonymous.anonymous1:
+#     order: 0
+#     credentials:
+#       username: ${ELASTIC_USERNAME}
+#       password: ${ELASTIC_PASSWORD}
 
 # Default Kibana configuration for docker target
 server.host: "0.0.0.0"
 server.shutdownTimeout: "5s"
-# elasticsearch.hosts: [ "http://elasticsearch:9200" ]  # this default is anyway overriden by an environment variable
 monitoring.ui.container.elasticsearch.enabled: true
 
-# server.publicBaseUrl: "http://kibana.localhost"
-# security.showInsecureClusterWarning: false
+# fix for reporting exports -  Found 'server.host: "0.0.0.0"' in Kibana configuration. Reporting is not able to use this as the Kibana server hostname. To enable PNG/PDF Reporting to work, 'xpack.reporting.kibanaServer.hostname: localhost' is automatically set in the configuration. You can prevent this message by adding 'xpack.reporting.kibanaServer.hostname: localhost' in kibana.yml.
+xpack.reporting.kibanaServer.hostname: localhost

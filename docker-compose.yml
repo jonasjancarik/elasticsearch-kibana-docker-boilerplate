@@ -3,28 +3,29 @@ version: "3.7"
 
 services:
   setup:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
     user: "0"
     environment:
-      ES_PASSWORD: ${ES_PASSWORD:?err}
+      ELASTIC_SECURITY_ENABLED: ${ELASTIC_SECURITY_ENABLED:-true}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?err}
       KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:?err}
     command: >
       bash -c '
-        if [ -z $ES_PASSWORD ]; then
-          echo "Set the ES_PASSWORD environment variable in the .env file";
+        if [ -z "$$ELASTIC_PASSWORD" ]; then
+          echo "Set the ELASTIC_PASSWORD environment variable in the .env file";
           exit 1;
-        elif [ -z $KIBANA_SYSTEM_PASSWORD ]; then
+        elif [ -z "$$KIBANA_SYSTEM_PASSWORD" ]; then
           echo "Set the KIBANA_SYSTEM_PASSWORD environment variable in the .env file";
           exit 1;
         fi;
-        if [ ! -f certs/ca.zip ]; then
+        if [ ! -f config/certs/ca.zip ]; then
           echo "Creating CA";
           bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
           unzip config/certs/ca.zip -d config/certs;
         fi;
-        if [ ! -f certs/certs.zip ]; then
+        if [ ! -f config/certs/certs.zip ]; then
           echo "Creating certs";
           echo -ne \
           "instances:\n"\
@@ -38,23 +39,23 @@ services:
           bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
           unzip config/certs/certs.zip -d config/certs;
         fi;
-        echo "Setting file permissions"
+        echo "Setting certificate files permissions"
         chown -R root:root config/certs;
         find . -type d -exec chmod 750 \{\} \;;
         find . -type f -exec chmod 640 \{\} \;;
         echo "Waiting for Elasticsearch availability";
-        if [ -z $ES_SECURITY_ENABLED ] || [ $ES_SECURITY_ENABLED == false ]
+        if [ -z "$$ELASTIC_SECURITY_ENABLED" ] || [ "$${ELASTIC_SECURITY_ENABLED,,}" == "false" ]
         then
           until curl --output /dev/null --silent --head --fail http://es01:9200; do sleep 5; done;
         else
           until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
         fi;
-        if [ -z $ES_SECURITY_ENABLED ] || [ $ES_SECURITY_ENABLED == false ]
+        if [ -z "$$ELASTIC_SECURITY_ENABLED" ] || [ "$${ELASTIC_SECURITY_ENABLED,,}" == "false" ]
         then
           echo "Not setting kibana_system password because security is disabled";
         else
           echo "Setting kibana_system password";
-          until curl -s -X POST --cacert config/certs/ca/ca.crt -u ${ES_USERNAME}:${ES_PASSWORD} -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_SYSTEM_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+          until curl -s -X POST --cacert config/certs/ca/ca.crt -u ${ELASTIC_USERNAME}:${ELASTIC_PASSWORD} -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_SYSTEM_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
         fi;
         echo "All done!";
       '
@@ -68,47 +69,102 @@ services:
     depends_on:
       setup:
         condition: service_healthy
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
+      - esplugins01:/usr/share/elasticsearch/plugins
     ports:
-      - ${ES_PORT}:9200
+      - ${ELASTIC_PORT}:9200
+    env_file:
+      - .env
     environment:
+      - ELASTIC_SECURITY_ENABLED=${ELASTIC_SECURITY_ENABLED:-true}
+      - KIBANA_PASSWORD=${KIBANA_SYSTEM_PASSWORD}
       - node.name=es01
       - cluster.name=${CLUSTER_NAME}
       - cluster.initial_master_nodes=es01
-      - ELASTIC_PASSWORD=${ES_PASSWORD}
       - bootstrap.memory_lock=true
-      - xpack.security.enabled=${ES_SECURITY_ENABLED:-true}
-      - xpack.security.http.ssl.enabled=${ES_SECURITY_ENABLED:-true}
+      - xpack.security.enabled=${ELASTIC_SECURITY_ENABLED:-true}
+      - xpack.security.http.ssl.enabled=${ELASTIC_SECURITY_ENABLED:-true}
       - xpack.security.http.ssl.key=certs/es01/es01.key
       - xpack.security.http.ssl.certificate=certs/es01/es01.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
-      - xpack.security.transport.ssl.enabled=${ES_SECURITY_ENABLED:-true}
+      - xpack.security.transport.ssl.enabled=${ELASTIC_SECURITY_ENABLED:-true}
       - xpack.security.transport.ssl.key=certs/es01/es01.key
       - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.ml.enabled=true
-      - http.cors.enabled=${ES_CORS_ENABLED:-false}
+      - http.cors.enabled=${ELASTIC_CORS_ENABLED:-false}
       - http.cors.allow-origin="*"
       - http.cors.allow-methods=OPTIONS, HEAD, GET, POST, PUT, DELETE
       - http.cors.allow-headers=X-Requested-With,X-Auth-Token,Content-Type,Content-Length,Authorization
       - http.cors.allow-credentials=true
-    mem_limit: ${MEM_LIMIT}
+      - reindex.remote.whitelist=172.17.0.1:*      
+    mem_limit: ${ELASTIC_MEMORY_LIMIT:?err}
     command: >
       /bin/sh -c '
-        if [ ! -z $ES_PLUGINS ]; then
-            echo "Installing ES plugins: ${ES_PLUGINS}"
-            IFS=", " read -r -a plugins <<< $ES_PLUGINS
-            for plugin in "$${plugins[@]}"
-            do
-                bin/elasticsearch-plugin install $${plugin}
+        if [ ! -z "$$ELASTIC_PLUGINS" ]; then
+            echo "Checking ES plugins based on ELASTIC_PLUGINS ($${ELASTIC_PLUGINS} should be installed)"
+
+            # Convert ELASTIC_PLUGINS into an array
+            IFS=", " read -r -a desired_plugins <<< "$$ELASTIC_PLUGINS"
+
+            # We use `ls` to list the plugin directories instead of `elasticsearch-plugin list` 
+            # because `elasticsearch-plugin list` may return a shortened name (e.g., "analysis" 
+            # instead of "analysis-icu"), which can lead to incorrect plugin handling.
+            installed_plugin_output=$$(ls /usr/share/elasticsearch/plugins/)
+            installed_plugins=()
+            for plugin in $$installed_plugin_output; do
+                installed_plugins+=("$$plugin")
             done
+
+            # Print the list of installed plugins
+            echo "Currently installed plugins:"
+            printf "  - %s\n" "$${installed_plugins[@]}"
+
+            changes_made=0  # Flag to track changes
+
+            # Uninstall plugins not in the desired list
+            for plugin in "$${installed_plugins[@]}"; do
+                if ! printf "%s\n" "$${desired_plugins[@]}" | grep -q -F "$$plugin"; then
+                    echo "Uninstalling plugin: $$plugin"
+                    bin/elasticsearch-plugin remove "$$plugin"
+                    changes_made=1
+                fi
+            done
+
+            # Check for force install
+            if [ ! -z "$$ELASTIC_PLUGINS_FORCE_INSTALL" ] && [ "$${ELASTIC_PLUGINS_FORCE_INSTALL,,}" == "true" ]; then
+                echo "Force reinstalling plugins due to ELASTIC_PLUGINS_FORCE_INSTALL being set"
+                for plugin in "$${desired_plugins[@]}"; do
+                    echo "Uninstalling plugin: $$plugin"
+                    bin/elasticsearch-plugin remove "$$plugin" || true  # Ignore errors if uninstall fails
+                done
+                installed_plugins=()  # Reset the installed plugins list
+                changes_made=1  # Mark changes as made
+            fi
+
+            # Install plugins from desired list that are not currently installed
+            for plugin in "$${desired_plugins[@]}"; do
+                if ! printf "%s\n" "$${installed_plugins[@]}" | grep -q -F "$$plugin"; then
+                    echo "Installing plugin: $$plugin"
+                    bin/elasticsearch-plugin install "$$plugin"
+                    changes_made=1
+                fi
+            done
+            
+            # Check if changes were made and print the appropriate message
+            if [ $$changes_made -eq 1 ]; then
+                echo "Plugins have been adjusted. Please disregard any messages saying you should restart Elasticsearch now. Elasticsearch will be started next."
+            else
+                echo "No changes were made to the installed plugins."
+            fi
+            
         else
-            echo "No ES plugins to install (ES_PLUGINS environment variable is not set)"
+            echo "No ES plugins to adjust (ELASTIC_PLUGINS environment variable is not set)"
         fi
 
         /usr/local/bin/docker-entrypoint.sh
@@ -121,7 +177,7 @@ services:
       test:
         [
             "CMD-SHELL",
-            "if [ -z $ES_SECURITY_ENABLED ] || [ $ES_SECURITY_ENABLED == false ]; then curl --head --fail http://es01:9200; else curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q 'missing authentication credentials'; fi",
+            "if [ -z \"$$ELASTIC_SECURITY_ENABLED\" ] || [ \"$${ELASTIC_SECURITY_ENABLED,,}\" == \"false\" ]; then curl --head --fail http://localhost:9200; else curl -s --cacert config/certs/ca/ca.crt -u \"$${ELASTIC_USERNAME}:$${ELASTIC_PASSWORD}\" https://localhost:9200; fi",
         ]
       interval: 10s
       timeout: 10s
@@ -132,13 +188,12 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:8.4.3
+    image: docker.elastic.co/kibana/kibana:8.10.4
     volumes:
       - certs:/usr/share/kibana/config/certs
       - kibanadata:/usr/share/kibana/data
       # uncomment the following volume to use a custom kibana.yml file,
-      # e.g. to enable anonymous authentication
-      # beware, without adjustments, this will give superuser access to anyone accessing Kibana
+      # e.g. to enable anonymous authentication (further config in kibana.yml required)
       # - type: bind
       #   source: ./kibana.yml
       #   target: /usr/share/kibana/config/kibana.yml
@@ -146,18 +201,21 @@ services:
       - ${KIBANA_PORT}:5601
     environment:
       SERVERNAME: kibana
-      ELASTICSEARCH_HOSTS: ${ES_DOCKER_HOSTS:-}
+      ELASTICSEARCH_HOSTS: ${ELASTIC_DOCKER_HOSTS:-}
+      ELASTIC_SECURITY_ENABLED: ${ELASTIC_SECURITY_ENABLED:-true}
       ELASTICSEARCH_USERNAME: kibana_system
       ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD}
       ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: config/certs/ca/ca.crt
-      # The next two are the actual Elasticsearch superuser credentials used for anonymous authentication to Kibana
-      ES_USERNAME: ${ES_USERNAME}  # usually 'elastic'
-      ES_PASSWORD: ${ES_PASSWORD}
-    mem_limit: ${MEM_LIMIT}
+      ELASTIC_USERNAME: ${ELASTIC_USERNAME:-elastic}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      # Uncomment the following to enable subdirectory support
+      # SERVER_BASEPATH: ${KIBANA_BASE_PATH:-}
+      # SERVER_PUBLICBASEURL: ${KIBANA_PUBLIC_BASE_URL:-}
+    mem_limit: ${KIBANA_MEMORY_LIMIT:?err}
     command: >
       /bin/sh -c '
-        if [ x$${ELASTICSEARCH_HOSTS} = x ]; then
-          if [ $ES_SECURITY_ENABLED = "true" ]; then
+        if [ -z "$${ELASTICSEARCH_HOSTS}" ]; then
+          if [ "$$ELASTIC_SECURITY_ENABLED" = "true" ]; then
             echo "setting ELASTICSEARCH_HOSTS to https://es01:9200"
             export ELASTICSEARCH_HOSTS="https://es01:9200"
           else
@@ -173,35 +231,19 @@ services:
       test:
         [
             "CMD-SHELL",
-            "curl -L -s -I http://localhost:5601 | grep -q 'HTTP/1.1 200 OK'",
+            "curl -L -s -I http://localhost:5601/app/home | grep -q 'HTTP/1.1 200 OK'",
         ]
       interval: 10s
       timeout: 10s
       retries: 120
     restart: "unless-stopped"
 
-  # app:
-  #   build: .
-  #   environment:
-  #     - FOO=${FOO}
-  #   volumes:
-  #     - certs:/app/certs
-  #     - tooldata:/app/data
-  #   depends_on:
-  #     es01:
-  #       condition: service_healthy
-  #     kibana:
-  #       condition: service_healthy        
-  #   stdin_open: true # docker run -i
-  #   tty: true        # docker run -t
-  #   restart: "unless-stopped"
-
 volumes:
   certs:
     driver: local
   esdata01:
     driver: local
+  esplugins01:
+    driver: local
   kibanadata:
     driver: local
-  # tooldata:
-  #   driver: local
