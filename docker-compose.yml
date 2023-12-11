@@ -3,13 +3,14 @@ version: "3.7"
 
 services:
   setup:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:8.11.2}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
     user: "0"
     environment:
-      ELASTIC_SECURITY_ENABLED: ${ELASTIC_SECURITY_ENABLED:-true}
+      ELASTIC_USERNAME: ${ELASTIC_USERNAME:-elastic}
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?err}
+      ELASTIC_SECURITY_ENABLED: ${ELASTIC_SECURITY_ENABLED:-true}
       KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:?err}
     command: >
       bash -c '
@@ -69,11 +70,18 @@ services:
     depends_on:
       setup:
         condition: service_healthy
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:8.11.2}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
       - esplugins01:/usr/share/elasticsearch/plugins
+      - type: bind
+        source: ./elasticsearch.yml
+        target: /usr/share/elasticsearch/config/elasticsearch.yml
+      # uncomment and edit the following to mount a snapshot repository - also uncomment path.repo in the environment section below
+      # - type: bind
+      #   source: /<path_to_your_backup_folder>
+      #   target: /snapshots
     ports:
       - ${ELASTIC_PORT}:9200
     env_file:
@@ -81,7 +89,10 @@ services:
     environment:
       - ELASTIC_SECURITY_ENABLED=${ELASTIC_SECURITY_ENABLED:-true}
       - KIBANA_PASSWORD=${KIBANA_SYSTEM_PASSWORD}
+      - ELASTIC_PLUGINS_FORCE_INSTALL=${ELASTIC_PLUGINS_FORCE_INSTALL:-false}
       - node.name=es01
+      - network.host=0.0.0.0
+      # - path.repo=/snapshots
       - cluster.name=${CLUSTER_NAME}
       - cluster.initial_master_nodes=es01
       - bootstrap.memory_lock=true
@@ -96,13 +107,14 @@ services:
       - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE:-basic}
       - xpack.ml.enabled=true
       - http.cors.enabled=${ELASTIC_CORS_ENABLED:-false}
       - http.cors.allow-origin="*"
       - http.cors.allow-methods=OPTIONS, HEAD, GET, POST, PUT, DELETE
       - http.cors.allow-headers=X-Requested-With,X-Auth-Token,Content-Type,Content-Length,Authorization
       - http.cors.allow-credentials=true
-      - reindex.remote.whitelist=172.17.0.1:*      
+      - reindex.remote.whitelist=172.17.0.1:*
     mem_limit: ${ELASTIC_MEMORY_LIMIT:?err}
     command: >
       /bin/sh -c '
@@ -188,7 +200,7 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:8.10.4
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_STACK_VERSION:8.11.2}
     volumes:
       - certs:/usr/share/kibana/config/certs
       - kibanadata:/usr/share/kibana/data
@@ -210,7 +222,7 @@ services:
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
       # Uncomment the following to enable subdirectory support
       # SERVER_BASEPATH: ${KIBANA_BASE_PATH:-}
-      # SERVER_PUBLICBASEURL: ${KIBANA_PUBLIC_BASE_URL:-}
+      SERVER_PUBLICBASEURL: ${KIBANA_PUBLIC_BASE_URL:-}
     mem_limit: ${KIBANA_MEMORY_LIMIT:?err}
     command: >
       /bin/sh -c '
@@ -238,6 +250,24 @@ services:
       retries: 120
     restart: "unless-stopped"
 
+  app:
+    build: .
+    environment:
+      - ELASTIC_HOST=es01
+      - ELASTIC_PORT=9200
+      - ELASTIC_CA_CERTS=/app/certs/ca/ca.crt
+      - KIBANA_HOST=kibana
+      - KIBANA_PORT=5601
+      - ELASTIC_USERNAME=${ELASTIC_USERNAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - certs:/app/certs
+      # - app-data-input:/input-data
+      # - app-data-output:/output-data
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    restart: "unless-stopped"
+
 volumes:
   certs:
     driver: local
@@ -247,3 +277,7 @@ volumes:
     driver: local
   kibanadata:
     driver: local
+  # app-data-input:
+  #   driver: local
+  # app-data-output:
+  #   driver: local
