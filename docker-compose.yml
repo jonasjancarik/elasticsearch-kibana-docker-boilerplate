@@ -194,7 +194,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-    restart: "unless-stopped"
+    restart: ${RESTART_POLICY:-no}
 
   kibana:
     depends_on:
@@ -248,25 +248,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-    restart: "unless-stopped"
-
-  app:
-    build: .
-    environment:
-      - ELASTIC_HOST=es01
-      - ELASTIC_PORT=9200
-      - ELASTIC_CA_CERTS=/app/certs/ca/ca.crt
-      - KIBANA_HOST=kibana
-      - KIBANA_PORT=5601
-      - ELASTIC_USERNAME=${ELASTIC_USERNAME}
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-    volumes:
-      - certs:/app/certs
-      # - app-data-input:/input-data
-      # - app-data-output:/output-data
-    stdin_open: true # docker run -i
-    tty: true        # docker run -t
-    restart: "unless-stopped"
+    restart: ${RESTART_POLICY:-no}
 
 volumes:
   certs:
@@ -277,7 +259,3 @@ volumes:
     driver: local
   kibanadata:
     driver: local
-  # app-data-input:
-  #   driver: local
-  # app-data-output:
-  #   driver: local

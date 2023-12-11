@@ -1,41 +1,38 @@
-# Elasticsearch-Kibana Docker Boilerplate
+# Elasticsearch & Kibana Docker Boilerplate
 
 ## Overview
 
-This boilerplate provides a configuration for running Elasticsearch and Kibana in Docker containers. It's based on the official Docker Compose setup from Elastic, but with custom, opinionated enhancements for greater flexibility and control.
+This boilerplate provides a configuration for running Elasticsearch and Kibana in Docker containers. It's based on the [official Docker Compose file](https://github.com/elastic/elasticsearch/blob/8.11/docs/reference/setup/install/docker/docker-compose.yml) from Elastic, but with custom enhancements for greater flexibility and control. Additionally, it includes a separate Docker Compose setup for a custom application that interacts with Elasticsearch and Kibana.
 
 ## Features
 
-- **Single-node Elasticsearch**: Streamlined for a single node setup, making it simpler for development and testing environments.
-- **Default Elasticsearch Version**: The Elasticsearch version is set to `8.11.2` by default, which can be updated as needed using the `ELASTIC_STACK_VERSION` environment variable.
-- **Enhanced Environment Variable Management**: Advanced handling of environment variables like `ELASTIC_PASSWORD` and `KIBANA_SYSTEM_PASSWORD`, with error checks and default values.
-- **Quick Security Toggle**: Easily toggle Elasticsearch security features on or off using the `ELASTIC_SECURITY_ENABLED` environment variable.
-- **Elasticsearch Plugin Management**: Automated script to manage Elasticsearch plugins based on environment variables.
-- **Dedicated Volume for Elasticsearch Plugins**: A dedicated volume for Elasticsearch plugins, allowing for persistent plugin management.
-- **Robust Health Checks**: Improved health checks in services, taking into account the security settings.
-- **Reliable Restart Policies**: Services are configured to restart unless explicitly stopped, enhancing uptime and reliability.
-- **Default Reindex Remote Host**: The default allowed remote host for reindexing is set 172.17.0.1:*, the default IP address of the host system in Docker. This allows you to easily reindex from the host system (or a remote host using port forwarding).
-- **Additional `app` Service**: A template for integrating a Python application that interacts with Elasticsearch and Kibana, including a Dockerfile (Python version 3.10.8).
+- **Single-node Elasticsearch Setup**: Configured for a single-node (es01) setup, suitable for development and testing environments.
+- **Default Elasticsearch Version**: Sets the Elasticsearch version to `8.11.2` by default, adjustable via the `ELASTIC_STACK_VERSION` environment variable.
+- **Security Toggle**: Provides the option to enable or disable Elasticsearch security features using the `ELASTIC_SECURITY_ENABLED` environment variable; Kibana is automatically configured to adapt to the security configuration and healthcheks are adjusted accordingly.
+- **Elasticsearch Plugin Script**: Includes a script to automate the management of Elasticsearch plugins, driven by environment variables.
+- **Volume for Elasticsearch Plugins**: Allocates a specific volume for Elasticsearch plugins to speed up container startup.
+- **Restart Policy**: Configures services to automatically restart unless they are explicitly stopped, making it easier to keep the stack running.
+- **Separate Compose File for Custom App**: Utilizes a separate Docker Compose file (`docker-compose-app.yml`) for the integration of a custom application, enabling independent management.
 
 ## Getting Started
 
-1. **Set Environment Variables**: Copy `.env.example` to `.env` and set the required variables.
-2. **Docker Compose Up**: Run `docker-compose up` to start the services.
-3. **Access Kibana**: Once the services are up, access Kibana at `http://localhost:${KIBANA_PORT}`.
+### Running Elasticsearch and Kibana
+
+First, ensure that vm.max_map_count is set to at least 262144. 
+
+1. **Ensure correct vm.max_map_count**: See https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html#_set_vm_max_map_count_to_at_least_262144
+2. **Set Environment Variables**: Copy `.env.example` to `.env` and set the required variables.
+3. **Start Services**: Run `docker-compose up` to start the Elasticsearch and Kibana services.
+4. **Access Kibana**: Once the services are up, access Kibana at `http://localhost:${KIBANA_PORT}`.
+
+### Running with Custom App
+
+To run the Elasticsearch stack along with a custom application:
+
+1. **Set Up the Elasticsearch Stack**: Follow the steps above to set up the environment variables and start the Elasticsearch and Kibana services.
+2. **Start All Services Including the App**: Run `docker-compose -f docker-compose.yml -f docker-compose-app.yml up` to start all services, including the custom application.
 
 ## Customisation
 
 - **Elasticsearch Plugins**: Adjust `ELASTIC_PLUGINS` in the `.env` file to manage plugins.
-- **Toggle Security**: Set `ELASTIC_SECURITY_ENABLED` in `.env` to enable or disable Elasticsearch security features.
-
-## Troubleshooting
-
-### Elasticsearch fails to start using Docker: Max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
-
-You need to increase the value of vm.max_map_count with `sysctl -w vm.max_map_count=262144`.
-
-On Windows, if you are using WSL (which should be the case with Docker Desktop), you can run `wsl -d docker-desktop`, followed by `sysctl -w vm.max_map_count=262144`.
-
-To persist this change, you can add `vm.max_map_count = 262144` to `/etc/sysctl.conf` in WSL. I.e. for Docker Desktop on Windows with a WSL backend, you can run `wsl -d docker-desktop --exec sh -c "echo 'vm.max_map_count = 262144' >> /etc/sysctl.conf"` to persist this setting. See https://stackoverflow.com/a/66547784/1334688.
-
-Try this fix even if you cannot locate the error message above - it may be burried somewhere in the logs.
+- **Security Toggle**: Use `ELASTIC_SECURITY_ENABLED` in `.env` to enable or disable Elasticsearch security features.
