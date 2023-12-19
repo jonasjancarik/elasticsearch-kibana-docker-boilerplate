@@ -3,7 +3,7 @@ version: "3.7"
 
 services:
   setup:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:8.11.2}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:-8.11.2}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
     user: "0"
@@ -70,7 +70,7 @@ services:
     depends_on:
       setup:
         condition: service_healthy
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:8.11.2}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_STACK_VERSION:-8.11.2}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
@@ -200,7 +200,7 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:${ELASTIC_STACK_VERSION:8.11.2}
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_STACK_VERSION:-8.11.2}
     volumes:
       - certs:/usr/share/kibana/config/certs
       - kibanadata:/usr/share/kibana/data
